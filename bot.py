@@ -1,33 +1,35 @@
 #!/usr/bin/env python3
 """
-Telegram Bot with Telethon Integration
-A modern, async Python Telegram bot with user session management.
+🤖 Telegram Bot with Telethon Integration
 
-Features:
-- Telegram Bot API integration
-- Telethon client for advanced operations
-- Channel listing with session persistence
-- Modern async/await patterns
+A production-ready bot featuring:
+- Telegram Bot API (python-telegram-bot v22+)
+- Telethon client for user session management
+- Async/await for non-blocking operations
 - Comprehensive logging and error handling
+- Type hints and clean architecture
 """
 
 import logging
 import os
 import sys
-from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import Application, CommandHandler, ContextTypes, ConversationHandler
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+)
 from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError
 
 # ============================================================================
-# Configuration
+# Configuration & Setup
 # ============================================================================
 
-# Load environment variables
 load_dotenv()
 
 BOT_TOKEN: str = os.getenv("BOT_TOKEN", "")
@@ -36,18 +38,10 @@ API_HASH: str = os.getenv("TELEGRAM_API_HASH", "")
 SESSION_NAME: str = os.getenv("SESSION_NAME", "user_session")
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
 
-# Validate configuration
 if not BOT_TOKEN or not API_ID or not API_HASH:
-    print("❌ Error: Missing required environment variables!")
-    print("Please create a .env file with BOT_TOKEN, TELEGRAM_API_ID, and TELEGRAM_API_HASH")
+    print("❌ Error: Missing required environment variables in .env")
+    print("Required: BOT_TOKEN, TELEGRAM_API_ID, TELEGRAM_API_HASH")
     sys.exit(1)
-
-# Conversation states
-MENU, CHANNELS, STATUS = range(3)
-
-# ============================================================================
-# Logging Setup
-# ============================================================================
 
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL),
@@ -55,28 +49,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Conversation states
+MENU, CHANNELS, STATUS = range(3)
+
 
 # ============================================================================
-# Telethon Client Management
+# Telethon Manager
 # ============================================================================
 
 class TelethonManager:
-    """Manages Telethon client for Telegram user session."""
+    """Manages Telethon client for user session operations."""
 
-    def __init__(
-        self,
-        api_id: int,
-        api_hash: str,
-        session_name: str,
-    ) -> None:
-        """
-        Initialize Telethon manager.
-
-        Args:
-            api_id: Telegram API ID
-            api_hash: Telegram API Hash
-            session_name: Session name for storing user data
-        """
+    def __init__(self, api_id: int, api_hash: str, session_name: str) -> None:
+        """Initialize Telethon manager."""
         self.api_id = api_id
         self.api_hash = api_hash
         self.session_name = session_name
@@ -84,108 +69,49 @@ class TelethonManager:
         self.is_authenticated = False
 
     async def connect(self) -> bool:
-        """
-        Connect to Telegram and authenticate if needed.
-
-        Returns:
-            True if connected successfully, False otherwise
-        """
+        """Connect to Telegram and check authentication."""
         try:
             self.client = TelegramClient(self.session_name, self.api_id, self.api_hash)
             await self.client.connect()
 
-            # Check if already authenticated
             if await self.client.is_user_authorized():
                 self.is_authenticated = True
-                logger.info("✅ Authenticated with existing session")
+                logger.info("✅ Telethon: Authenticated with existing session")
                 return True
 
-            logger.info("📱 No session found, starting authentication...")
-            await self.client.send_code_request(None)
+            logger.info("📱 Telethon: No session found")
             return True
 
         except Exception as e:
-            logger.error(f"❌ Connection error: {e}")
-            return False
-
-    async def authenticate(self, phone: str, code: str, password: Optional[str] = None) -> bool:
-        """
-        Authenticate user with phone number and code.
-
-        Args:
-            phone: Phone number
-            code: Verification code
-            password: 2FA password (if required)
-
-        Returns:
-            True if authenticated successfully, False otherwise
-        """
-        try:
-            if not self.client:
-                logger.error("Client not connected")
-                return False
-
-            await self.client.sign_in(phone, code)
-            self.is_authenticated = True
-            logger.info("✅ Authentication successful!")
-            return True
-
-        except SessionPasswordNeededError:
-            if password:
-                await self.client.sign_in(password=password)
-                self.is_authenticated = True
-                logger.info("✅ 2FA authentication successful!")
-                return True
-            else:
-                logger.warning("⚠️ 2FA required")
-                return False
-
-        except Exception as e:
-            logger.error(f"❌ Authentication error: {e}")
+            logger.error(f"❌ Telethon connection error: {e}")
             return False
 
     async def get_dialogs(self) -> list[str]:
-        """
-        Get list of channels and groups.
-
-        Returns:
-            List of formatted dialog information
-        """
+        """Get list of channels and groups."""
         if not self.client or not self.is_authenticated:
             return ["❌ Not authenticated"]
 
         try:
             dialogs = []
             async for dialog in self.client.iter_dialogs():
-                # Get channel/group info
                 if dialog.is_channel or dialog.is_group:
                     entity = dialog.entity
                     name = entity.title or "Unknown"
                     username = getattr(entity, "username", None)
 
                     if username:
-                        display = f"📢 {name} (@{username})"
+                        dialogs.append(f"📢 {name} (@{username})")
                     else:
-                        display = f"🔒 {name} (Private)"
+                        dialogs.append(f"🔒 {name} (Private)")
 
-                    dialogs.append(display)
-
-            if not dialogs:
-                return ["📭 No channels or groups found"]
-
-            return dialogs
+            return dialogs if dialogs else ["📭 No channels found"]
 
         except Exception as e:
             logger.error(f"❌ Error fetching dialogs: {e}")
-            return [f"❌ Error: {e}"]
+            return [f"❌ Error: {str(e)[:50]}"]
 
     async def get_user_info(self) -> dict:
-        """
-        Get current user information.
-
-        Returns:
-            Dictionary with user info
-        """
+        """Get current user information."""
         if not self.client or not self.is_authenticated:
             return {"status": "Not authenticated"}
 
@@ -193,7 +119,6 @@ class TelethonManager:
             me = await self.client.get_me()
             return {
                 "first_name": me.first_name,
-                "last_name": me.last_name or "",
                 "username": me.username or "None",
                 "phone": me.phone,
             }
@@ -205,12 +130,7 @@ class TelethonManager:
         """Disconnect from Telegram."""
         if self.client:
             await self.client.disconnect()
-            logger.info("Disconnected from Telegram")
 
-
-# ============================================================================
-# Global Telethon Manager Instance
-# ============================================================================
 
 telethon_manager = TelethonManager(API_ID, API_HASH, SESSION_NAME)
 
@@ -219,159 +139,99 @@ telethon_manager = TelethonManager(API_ID, API_HASH, SESSION_NAME)
 # Bot Handlers
 # ============================================================================
 
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """
-    Start command handler.
-    Displays welcome menu with main buttons.
-
-    Args:
-        update: Telegram update
-        context: Handler context
-
-    Returns:
-        MENU state
-    """
+async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle /start command."""
     try:
         user = update.effective_user
-        welcome_text = (
-            f"👋 Welcome, {user.first_name}!\n\n"
-            "🤖 This is a powerful Telegram Bot with advanced features.\n\n"
-            "Choose an option from the menu below:"
-        )
+        text = f"👋 Welcome, {user.first_name}!\n\nChoose an option:"
 
-        # Create inline keyboard
         keyboard = [
             [InlineKeyboardButton("📋 List Channels", callback_data="list_channels")],
             [InlineKeyboardButton("📊 Status", callback_data="status")],
             [InlineKeyboardButton("❌ Cancel", callback_data="cancel")],
         ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
 
-        await update.message.reply_text(welcome_text, reply_markup=reply_markup)
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
         logger.info(f"User {user.id} started the bot")
         return MENU
 
     except Exception as e:
-        logger.error(f"Error in start_command: {e}")
-        await update.message.reply_text("❌ An error occurred. Please try again.")
+        logger.error(f"Error in start_handler: {e}")
+        await update.message.reply_text("❌ An error occurred")
         return MENU
 
 
-async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """
-    Status command handler.
-    Displays current bot and user session status.
-
-    Args:
-        update: Telegram update
-        context: Handler context
-
-    Returns:
-        MENU state
-    """
+async def status_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle status button."""
     try:
-        status_text = "📊 Bot Status Report:\n\n"
+        query = update.callback_query
+        await query.answer()
+
+        text = "📊 Bot Status:\n\n"
 
         if telethon_manager.is_authenticated:
             user_info = await telethon_manager.get_user_info()
             if "error" not in user_info:
-                status_text += (
-                    f"✅ Telethon Status: Connected\n"
+                text += (
+                    f"✅ Telethon: Connected\n"
                     f"👤 User: {user_info.get('first_name', 'N/A')}\n"
                     f"📱 Username: @{user_info.get('username', 'N/A')}\n"
-                    f"📞 Phone: {user_info.get('phone', 'N/A')}\n"
                 )
             else:
-                status_text += f"⚠️ Telethon Status: Error - {user_info.get('error')}\n"
+                text += f"⚠️ Telethon: {user_info.get('error', 'Error')}\n"
         else:
-            status_text += "❌ Telethon Status: Not authenticated\n"
+            text += "❌ Telethon: Not authenticated\n"
 
-        status_text += f"\n🐍 Python Version: 3.12+\n"
-        status_text += f"✨ Bot is running smoothly!"
+        text += "\n✨ Bot is running"
 
         keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="back")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await update.callback_query.edit_message_text(
-            status_text, reply_markup=reply_markup
-        )
-        logger.info("Status report shown")
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
         return STATUS
 
     except Exception as e:
-        logger.error(f"Error in status_command: {e}")
-        await update.callback_query.answer("❌ Error fetching status", show_alert=True)
+        logger.error(f"Error in status_handler: {e}")
+        await update.callback_query.answer("❌ Error", show_alert=True)
         return MENU
 
 
 async def list_channels_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """
-    List channels handler.
-    Fetches and displays user's channels and groups.
-
-    Args:
-        update: Telegram update
-        context: Handler context
-
-    Returns:
-        CHANNELS state
-    """
+    """Handle list channels button."""
     try:
+        query = update.callback_query
+        await query.answer()
+
         if not telethon_manager.is_authenticated:
-            await update.callback_query.answer(
-                "❌ Not authenticated. Please authenticate first.", show_alert=True
-            )
+            await query.answer("❌ Not authenticated", show_alert=True)
             return MENU
 
-        # Show loading indicator
-        await update.callback_query.answer("📋 Fetching channels...")
-
         dialogs = await telethon_manager.get_dialogs()
-        channels_text = "📋 Your Channels & Groups:\n\n"
-        channels_text += "\n".join(dialogs)
-        channels_text += "\n\n(Total: {})".format(len(dialogs))
+        text = "📋 Channels & Groups:\n\n" + "\n".join(dialogs)
+        text += f"\n\n(Total: {len(dialogs)})"
 
         keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="back")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await update.callback_query.edit_message_text(
-            channels_text, reply_markup=reply_markup
-        )
-        logger.info("Channels list shown")
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
         return CHANNELS
 
     except Exception as e:
         logger.error(f"Error in list_channels_handler: {e}")
-        await update.callback_query.answer(f"❌ Error: {str(e)}", show_alert=True)
+        await update.callback_query.answer(f"❌ Error: {str(e)[:50]}", show_alert=True)
         return MENU
 
 
 async def back_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """
-    Back button handler.
-    Returns to main menu.
-
-    Args:
-        update: Telegram update
-        context: Handler context
-
-    Returns:
-        MENU state
-    """
+    """Handle back button."""
     try:
-        menu_text = (
-            "🔄 Back to Menu\n\n"
-            "Choose an option from the menu below:"
-        )
+        query = update.callback_query
+        await query.answer()
 
+        text = "🔄 Back to Menu\n\nChoose an option:"
         keyboard = [
             [InlineKeyboardButton("📋 List Channels", callback_data="list_channels")],
             [InlineKeyboardButton("📊 Status", callback_data="status")],
             [InlineKeyboardButton("❌ Cancel", callback_data="cancel")],
         ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
 
-        await update.callback_query.edit_message_text(menu_text, reply_markup=reply_markup)
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
         return MENU
 
     except Exception as e:
@@ -380,169 +240,87 @@ async def back_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
 
 async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """
-    Cancel handler.
-    Ends the conversation.
-
-    Args:
-        update: Telegram update
-        context: Handler context
-
-    Returns:
-        ConversationHandler.END
-    """
+    """Handle cancel button."""
     try:
-        goodbye_text = "👋 Goodbye! Use /start to interact with me again."
-        await update.callback_query.edit_message_text(goodbye_text)
+        query = update.callback_query
+        await query.answer()
+        await query.edit_message_text("👋 Goodbye! Use /start to interact again.")
         logger.info("Conversation cancelled")
-        return ConversationHandler.END
+        return -1
 
     except Exception as e:
         logger.error(f"Error in cancel_handler: {e}")
-        return ConversationHandler.END
+        return -1
 
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """
-    Main button callback handler.
-    Routes button presses to appropriate handlers.
-
-    Args:
-        update: Telegram update
-        context: Handler context
-
-    Returns:
-        New conversation state
-    """
+    """Route button callbacks to appropriate handlers."""
     query = update.callback_query
-    await query.answer()
+    callback = query.data
 
-    callback_data = query.data
-
-    if callback_data == "list_channels":
+    if callback == "status":
+        return await status_handler(update, context)
+    elif callback == "list_channels":
         return await list_channels_handler(update, context)
-    elif callback_data == "status":
-        return await status_command(update, context)
-    elif callback_data == "back":
+    elif callback == "back":
         return await back_handler(update, context)
-    elif callback_data == "cancel":
+    elif callback == "cancel":
         return await cancel_handler(update, context)
 
     return MENU
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    Log errors caused by updates.
-
-    Args:
-        update: The update that caused the error
-        context: The context object
-    """
-    logger.error(f"Exception while handling an update: {context.error}")
+    """Handle errors."""
+    logger.error(f"Exception: {context.error}")
 
     if isinstance(update, Update) and update.effective_message:
         try:
-            await update.effective_message.reply_text(
-                "❌ An unexpected error occurred. Please try again later."
-            )
+            await update.effective_message.reply_text("❌ An error occurred")
         except Exception as e:
             logger.error(f"Failed to send error message: {e}")
 
 
 # ============================================================================
-# Main Application Setup
+# Main Application
 # ============================================================================
 
 async def main() -> None:
-    """
-    Main entry point.
-    Initializes and starts the bot.
-    """
+    """Initialize and start the bot."""
     try:
         logger.info("🚀 Starting Telegram Bot...")
 
-        # Initialize Telethon
-        logger.info("🔌 Connecting Telethon client...")
-        telethon_connected = await telethon_manager.connect()
+        # Connect Telethon
+        logger.info("🔌 Initializing Telethon...")
+        telethon_ok = await telethon_manager.connect()
 
-        if telethon_connected:
-            if telethon_manager.is_authenticated:
-                user_info = await telethon_manager.get_user_info()
-                logger.info(f"✅ Telethon authenticated as {user_info.get('first_name')}")
-            else:
-                logger.warning("⚠️ Telethon: No existing session, awaiting user authentication")
+        if telethon_ok and telethon_manager.is_authenticated:
+            user_info = await telethon_manager.get_user_info()
+            logger.info(f"✅ Telethon authenticated as {user_info.get('first_name')}")
+        elif telethon_ok:
+            logger.warning("⚠️ Telethon: Waiting for authentication on first login")
         else:
-            logger.warning("⚠️ Telethon connection failed, but bot will continue")
+            logger.warning("⚠️ Telethon connection failed, bot will continue")
 
-        # Create application
-        application = Application.builder().token(BOT_TOKEN).build()
-
-        # Create conversation handler
-        conv_handler = ConversationHandler(
-            entry_points=[CommandHandler("start", start_command)],
-            states={
-                MENU: [
-                    ConversationHandler(
-                        entry_points=[],
-                        states={},
-                        fallbacks=[],
-                    ),
-                ],
-            },
-            fallbacks=[CommandHandler("start", start_command)],
-        )
+        # Create bot application
+        app = Application.builder().token(BOT_TOKEN).build()
 
         # Add handlers
-        application.add_handler(CommandHandler("start", start_command))
-        application.add_handler(CommandHandler("status", status_command))
-        application.add_handler(conv_handler)
-        application.add_handler(ConversationHandler(
-            entry_points=[],
-            states={
-                MENU: [],
-                CHANNELS: [],
-                STATUS: [],
-            },
-            fallbacks=[],
-        ))
-
-        # Simple callback handler for all buttons
-        application.add_handler(
-            ConversationHandler(
-                entry_points=[CommandHandler("start", start_command)],
-                states={
-                    MENU: [ConversationHandler(
-                        entry_points=[],
-                        states={},
-                        fallbacks=[],
-                    )],
-                    CHANNELS: [],
-                    STATUS: [],
-                },
-                fallbacks=[CommandHandler("start", start_command)],
-            )
-        )
-
-        # Add direct button callback
-        from telegram.ext import CallbackQueryHandler
-        application.add_handler(CallbackQueryHandler(button_handler))
-
-        # Error handler
-        application.add_error_handler(error_handler)
+        app.add_handler(CommandHandler("start", start_handler))
+        app.add_handler(CallbackQueryHandler(button_handler))
+        app.add_error_handler(error_handler)
 
         logger.info("✅ Bot handlers configured")
         logger.info("🤖 Bot is polling for messages...")
 
-        # Start polling
-        async with application:
-            await application.start()
-            await application.updater.start_polling(
+        async with app:
+            await app.start()
+            await app.updater.start_polling(
                 allowed_updates=["message", "callback_query"],
                 drop_pending_updates=True,
             )
             logger.info("✅ Bot is running!")
-            await application.updater.idle()
+            await app.updater.idle()
 
     except KeyboardInterrupt:
         logger.info("⏹️ Bot stopped by user")
@@ -557,6 +335,7 @@ async def main() -> None:
 if __name__ == "__main__":
     try:
         import asyncio
+
         asyncio.run(main())
     except KeyboardInterrupt:
         print("\n⏹️ Bot stopped")
